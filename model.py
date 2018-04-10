@@ -14,7 +14,7 @@ class Network:
     output_n = None  # Nodes in last layer
     x = None  # Training examples
     y = None  # Training targets
-    m = None  # No. of training examples in mini-batch
+    mini_batch_size = None  # No. of training examples in mini-batch
     x_n = None  # No. of features
     a_l = None  # last layer activation
     example_n = None  # Total no. of training examples
@@ -46,19 +46,33 @@ class Network:
         self.layer_count += 1
         self.output_n = output_n
 
-    def forward_propagate(self, x):
-        """ Forward propagate through all layers """
-        #  Forward Propagation
-        a_previous = x
-        for l in range(self.layer_count):
-            # Get layer
-            current_layer = self.layer_list[l]
-            # Pass previous activation through current layer
-            a_current = current_layer.linear_activation_forward(a_previous)
-            # Copy current activation for next layer
-            a_previous = np.array(a_current, copy=True)
+    def train(self, x, y, learning_rate, iterations, mini_batch_size=None, optimizer='adam'):
+        """ Start training. Note: X, Y = (example_dims, # of examples) """
+        self.allow_save_with_keyboard_interrupt()
+        # Start logging
+        logging.basicConfig(filename='training.log', level=logging.INFO, format='%(message)s')
 
-        return a_current
+        self.x = x
+        self.y = y
+
+        self.x_n = x.shape[0]
+        self.example_n = x.shape[1]
+
+        assert x.shape != (0, 0), 'x is empty'
+        assert y.shape[0] == self.output_n, 'The number of output nodes does not match first dimension of Y'
+        assert y.shape[1] == self.example_n, 'The number of examples in Y and X do not match'
+
+        # Initialize the layers
+        self.initialize_layers(self.x_n, optimizer)
+        print('Starting training...')
+        # Start log
+        self.log_training_start(mini_batch_size, learning_rate)
+        # Start training
+        self.run_training(x, y, learning_rate, iterations, mini_batch_size)
+        # Calculate accuracy at the end of training
+        accuracy = self.get_accuracy(self.x, self.y)
+        print('Training Set Accuracy: {}%'.format(accuracy))
+        self.log_training_finish(accuracy)
 
     def initialize_layers(self, x_n, optimizer):
         """ Initialize parameters """
@@ -68,90 +82,12 @@ class Network:
         for l in self.layer_list:
             l.initialize_layer(optimizer)
 
-    def compute_cost(self, a_l, y):
-        """ Get categorical cross-entropy cost """
-        # - (1/m)sum(y log(AL)
-        return np.squeeze(- (1 / self.m) * np.sum(np.multiply(y, np.log(a_l))))
-
-    def backwards_propagation(self, a_l, x, y):
-        """ Perform backwards propagation for categorical cross-entropy"""
-        # Calculate derivative of cost, dZ, w.r.t Z
-        dz_l = a_l - y
-        self.layer_list[-1].dz = dz_l
-        # Iterate backwards through layers
-        for i in reversed(range(self.layer_count)):
-            # Get layer
-            layer = self.layer_list[i]
-            # If we're at first layer, input = X, else input = A (output) of previous layer
-            if i == 0:
-                prev_layer_a = x
-            else:
-                prev_layer_a = self.layer_list[i - 1].a
-
-            # Calculate derivative of cost, dW, w.r.t W
-            layer.dw = (1/self.m)*np.dot(layer.dz, prev_layer_a.T)
-
-            # Calculate derivative of cost, dB, w.r.t. B
-            layer.db = (1/self.m)*np.sum(layer.dz, axis=1, keepdims=True)
-
-            if i > 0:
-                prev_layer = self.layer_list[i - 1]
-                # Calculate derivative of cost, dZ, w.r.t. output Z of previous layer (l - 1)
-                prev_layer_da = np.dot(layer.w.T, layer.dz)
-                prev_layer_da = np.multiply(prev_layer_da, prev_layer.d)
-                prev_layer_da = prev_layer_da / prev_layer.keep_prob
-                prev_layer.dz = np.multiply(prev_layer_da, prev_layer.activation_derivative(prev_layer.z))
-
-            assert layer.dz.shape == layer.z.shape
-            assert layer.dw.shape == layer.w.shape
-            assert layer.db.shape == layer.b.shape
-
-    def update_parameters(self, learning_rate):
-        for l in self.layer_list:
-            l.update_parameters(learning_rate)
-
-    def allow_save_with_keyboard_interrupt(self):
-        signal.signal(signal.SIGINT, self.signal_handler)
-
-    def print_cost(self, cost, i, iterations, calculate_accuracy=True):
-        if calculate_accuracy and i % 100 == 0:
-            print('Training Set Accuracy: {}%'.format(self.get_accuracy(self.x, self.y)))
-        if i % 10 == 0 and i > 0:
-            print("{}: {:.1f}%: {}".format(i, (i + 100) * 100 / iterations, cost))
-
-    def run_training(self, x, y, learning_rate, iterations):
-        """ Run training """
-
-        self.m = x.shape[0]
-
-        for i in range(1, iterations + 1):
-            # Perform training step
-            cost = self.step(x, y, learning_rate)
-            # Gather costs
-            self.cost_list.append(cost)
-            self.epoch_count += 1
-
-            # Print cost and accuracy
-            self.print_cost(cost, i, iterations, calculate_accuracy=True)
-
-        # Plot costs
-        self.plot_cost()
-
-    def shuffle(self, x, y):
-        # Shuffle data
-        shuffled_idx = self.shuffle_indices(self.example_n)
-        for j in np.arange(x.shape[0]):
-            x[j, :] = x[j, shuffled_idx]
-
-        for j in np.arange(y.shape[0]):
-            y[j, :] = y[j, shuffled_idx]
-
-    def run_mini_batch_training(self, x, y, learning_rate, iterations, mini_batch_size):
+    def run_training(self, x, y, learning_rate, iterations, mini_batch_size):
         """ Run training with mini-batches """
-        self.m = mini_batch_size
+        self.mini_batch_size = mini_batch_size
         # Run training
         for i in range(1, iterations + 1):
-            self.shuffle(x, y)
+            self.shuffle_data(x, y)
             avg_cost = 0
             count = 0
             # Get mini-batch
@@ -172,12 +108,15 @@ class Network:
         # Plot costs
         self.plot_cost()
 
-    @staticmethod
-    def batch_generator(x, y, mini_batch_size):
-        """ Get mini-batch """
-        example_n = x.shape[1]
-        for i in range(0, example_n, mini_batch_size):
-            yield x[:, i:i + mini_batch_size], y[:, i:i + mini_batch_size]
+    def shuffle_data(self, x, y):
+        """ Shuffle data inplace """
+        # Shuffle data
+        shuffled_idx = self.shuffle_indices(self.example_n)
+        for j in np.arange(x.shape[0]):
+            x[j, :] = x[j, shuffled_idx]
+
+        for j in np.arange(y.shape[0]):
+            y[j, :] = y[j, shuffled_idx]
 
     @staticmethod
     def shuffle_indices(m):
@@ -186,8 +125,15 @@ class Network:
         np.random.shuffle(shuffled_idx)
         return shuffled_idx
 
+    @staticmethod
+    def batch_generator(x, y, mini_batch_size):
+        """ Generate mini-batches """
+        example_n = x.shape[1]
+        for i in range(0, example_n, mini_batch_size):
+            yield x[:, i:i + mini_batch_size], y[:, i:i + mini_batch_size]
+
     def step(self, x, y, learning_rate):
-        """ Perform single step """
+        """ Perform a single step """
         self.step_count += 1
         # 1. Forward propagation
         a_l = self.forward_propagate(x)
@@ -201,35 +147,77 @@ class Network:
         # Store cost for plotting
         return cost
 
-    def train(self, x, y, learning_rate, iterations, mini_batch_size=None, optimizer='adam'):
-        """ Start training. Note: X, Y = (example_dims, # of examples) """
+    def forward_propagate(self, x):
+        """ Forward propagate through all layers """
+        #  Forward Propagation
+        a_previous = x
+        for l in range(self.layer_count):
+            # Get layer
+            current_layer = self.layer_list[l]
+            # Pass previous activation through current layer
+            a_current = current_layer.linear_activation_forward(a_previous)
+            # Copy current activation for next layer
+            a_previous = np.array(a_current, copy=True)
 
-        self.allow_save_with_keyboard_interrupt()
-        # Start logging
-        logging.basicConfig(filename='training.log', level=logging.INFO, format='%(message)s')
+        return a_current
 
-        self.x = x
-        self.y = y
+    def backwards_propagation(self, a_l, x, y):
+        """ Perform backwards propagation for categorical cross-entropy"""
+        # Calculate derivative of cost, dZ, w.r.t Z
+        self.layer_list[-1].set_dz(a_l, y)
+        # Iterate backwards through layers
+        for i in reversed(range(self.layer_count)):
+            # Get layer
+            layer = self.layer_list[i]
+            # If we're at first layer, input = X, else input = A (output) of previous layer
+            if i == 0:
+                prev_layer_a = x
+            else:
+                prev_layer_a = self.layer_list[i - 1].a
 
-        self.x_n = x.shape[0]
-        self.example_n = x.shape[1]
+            # Calculate derivative of cost, dW, w.r.t W
+            layer.dw = (1 / self.mini_batch_size) * np.dot(layer.dz, prev_layer_a.T)
 
-        assert x.shape != (0, 0), 'x is empty'
-        assert y.shape[0] == self.output_n, 'The number of output nodes does not match first dimension of Y'
-        assert y.shape[1] == self.example_n, 'The number of examples in Y and X do not match'
+            # Calculate derivative of cost, dB, w.r.t. B
+            layer.db = (1 / self.mini_batch_size) * np.sum(layer.dz, axis=1, keepdims=True)
 
-        self.initialize_layers(self.x_n, optimizer)
+            if i > 0:
+                prev_layer = self.layer_list[i - 1]
+                # Calculate derivative of cost, dZ, w.r.t. output Z of previous layer (l - 1)
+                prev_layer_da = np.dot(layer.w.T, layer.dz)
+                prev_layer_da = np.multiply(prev_layer_da, prev_layer.d)
+                prev_layer_da = prev_layer_da / prev_layer.keep_prob
+                prev_layer.dz = np.multiply(prev_layer_da, prev_layer.activation_derivative(prev_layer.z))
 
-        print('Starting training...')
-        self.log_training_start(mini_batch_size, learning_rate)
-        if mini_batch_size:
-            self.run_mini_batch_training(x, y, learning_rate, iterations, mini_batch_size)
-        else:
-            self.run_training(x, y, learning_rate, iterations)
+            assert layer.dz.shape == layer.z.shape
+            assert layer.dw.shape == layer.w.shape
+            assert layer.db.shape == layer.b.shape
 
-        accuracy = self.get_accuracy(self.x, self.y)
-        print('Training Set Accuracy: {}%'.format(accuracy))
-        self.log_training_finish(accuracy)
+    def update_parameters(self, learning_rate):
+        """ Update parameters in each of the layers"""
+        for l in self.layer_list:
+            l.update_parameters(learning_rate)
+
+    def predict(self, x):
+        """ Make prediction """
+        return self.forward_propagate(x)
+
+    def get_accuracy(self, x, y):
+        """ Calculate accuracy on passed-in data set """
+        accuracy = np.sum(np.where(np.count_nonzero(np.round(
+            self.predict(x)) - y, axis=0) == 0, 1, 0)) * 100 / x.shape[1]
+        return accuracy
+
+    def compute_cost(self, a_l, y):
+        """ Use cost function as defined by last layer """
+        return self.layer_list[-1].cost_function(self.mini_batch_size, a_l, y)
+
+    def print_cost(self, cost, i, iterations, calculate_accuracy=True):
+        """ Print current cost, iterations, and percentage complete """
+        if calculate_accuracy and i % 100 == 0:
+            print('Training Set Accuracy: {}%'.format(self.get_accuracy(self.x, self.y)))
+        if i % 10 == 0 and i > 0:
+            print("{}: {:.1f}%: {}".format(i, (100*i/iterations), cost))
 
     def plot_cost(self):
         """ Plot cost against iterations """
@@ -240,17 +228,6 @@ class Network:
         ax.set_xlabel("Iteration")
         ax.set_ylabel("Cost")
         plt.show()
-
-    def predict(self, x):
-        """ Make prediction """
-        return self.forward_propagate(x)
-
-    def get_accuracy(self, x, y):
-        """ Calculate accuracy on passed-in data set """
-        accuracy = np.sum(np.where(np.count_nonzero(np.round(
-            self.predict(x)) - y, axis=0) == 0, 1, 0)) * 100 / x.shape[1]
-
-        return accuracy
 
     def save_parameters(self, file="temp.npy"):
         """ Save parameters to file """
@@ -283,12 +260,15 @@ class Network:
             self.save_parameters(file)
         sys.exit(0)
 
+    def allow_save_with_keyboard_interrupt(self):
+        """ Catch CTRL+C """
+        signal.signal(signal.SIGINT, self.signal_handler)
+
     def check_grads(self, x, y):
         """ This function can be called to ensure that implementation of back propagation is correct"""
-
         epsilon = 0.0000001
         x_n = x.shape[0]
-        self.m = x.shape[1]
+        self.mini_batch_size = x.shape[1]
         self.initialise_parameters(x_n)
         parameter_total = 0
         for layer in self.layer_list:

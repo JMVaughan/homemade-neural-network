@@ -2,6 +2,7 @@ import numpy as np
 
 from neural_network.optimizers import Momentum, GradientDescent, RMSProp, Adam
 from neural_network.parameter_initialization import small_random, xavier_relu, xavier_tanh
+from neural_network.cost_functions import  categorical_cross_entropy, binomial_cross_entropy
 
 
 class Layer:
@@ -28,6 +29,7 @@ class Layer:
         self.parameter_initialization = parameter_initialization
         # Placeholder for optimizer object
         self.optimizer = None
+        self.cost_function = None
 
         # Gradients
         self.dz = None
@@ -151,22 +153,35 @@ class SigmoidLayer(Layer):
             parameter_initialization = 'XavierRelu'
         super(SigmoidLayer, self).__init__(input_n, output_n, l, dropout_rate, parameter_initialization)
 
+        self.cost_function = binomial_cross_entropy
+
     def activation(self, z):
-        return 1 / (1 + np.exp(- z))
+        return 1 / (1 + np.exp(-z))
 
     def activation_derivative(self, z):
         return self.a * (1 - self.a)
 
+    def set_dz(self, a_l, y):
+        da = - np.divide(y, a_l) + np.divide(1 - y, 1 - a_l)
+        self.dz = np.multiply(da, self.activation_derivative(self.z))
+
 
 class SoftMaxLayer(Layer):
     def __init__(self, input_n, output_n, l, dropout_rate, parameter_initialization):
+
         if not parameter_initialization:
             parameter_initialization = 'XavierRelu'
+
         super(SoftMaxLayer, self).__init__(input_n, output_n, l, dropout_rate, parameter_initialization)
+
+        self.cost_function = categorical_cross_entropy
 
     def activation(self, z):
         e_z = np.exp(z - np.max(z))
         return e_z/np.sum(e_z, axis=0)
 
     def activation_derivative(self, z):
-        return self.a * (1 - self.a)
+        return self.a*(1 - self.a)
+
+    def set_dz(self, a_l, y):
+        self.dz = a_l - y
