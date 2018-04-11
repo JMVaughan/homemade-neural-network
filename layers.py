@@ -2,12 +2,12 @@ import numpy as np
 
 from neural_network.optimizers import Momentum, GradientDescent, RMSProp, Adam
 from neural_network.parameter_initialization import small_random, xavier_relu, xavier_tanh
-from neural_network.cost_functions import  categorical_cross_entropy, binomial_cross_entropy
+from neural_network.cost_functions import categorical_cross_entropy, binomial_cross_entropy
 
 
-class Layer:
-    def __init__(self, input_n, output_n, l, dropout_rate, parameter_initialization):
-        self.input_n = input_n
+class _Layer:
+    def __init__(self, output_n, dropout_rate, parameter_initialization):
+        self.input_n = None
         self.output_n = output_n
 
         self.parameters_loaded = False
@@ -15,16 +15,14 @@ class Layer:
         self.dropout_rate = dropout_rate
         self.keep_prob = 1 - dropout_rate
 
-        self.id = l
+        self.id = None
 
         self.w = None
         self.b = None
         self.z = None
         self.a = None
         self.d = None
-        # Gradients
-        self.dw = None
-        self.db = None
+
         # Type of parameter initialization
         self.parameter_initialization = parameter_initialization
         # Placeholder for optimizer object
@@ -34,6 +32,8 @@ class Layer:
         # Gradients
         self.dz = None
         self.da = None
+        self.dw = None
+        self.db = None
 
     def initialize_layer(self, optimizer):
         """ Initialize weights to be small and random """
@@ -119,11 +119,9 @@ class Layer:
         pass
 
 
-class TanhLayer(Layer):
-    def __init__(self, input_n, output_n, l, dropout_rate, parameter_initialization):
-        if not parameter_initialization:
-            parameter_initialization = 'XavierTanh'
-        super(TanhLayer, self).__init__(input_n, output_n, l, dropout_rate, parameter_initialization)
+class TanhLayer(_Layer):
+    def __init__(self, output_n, dropout_rate=0, parameter_initialization='XavierTanh'):
+        super(TanhLayer, self).__init__(output_n, dropout_rate, parameter_initialization)
 
     def activation(self, z):
         return np.tanh(z)
@@ -132,11 +130,9 @@ class TanhLayer(Layer):
         return 1 - np.square(np.tanh(z))
 
 
-class ReLuLayer(Layer):
-    def __init__(self, input_n, output_n, l, dropout_rate, parameter_initialization):
-        if not parameter_initialization:
-            parameter_initialization = 'XavierRelu'
-        super(ReLuLayer, self).__init__(input_n, output_n, l, dropout_rate, parameter_initialization)
+class ReLuLayer(_Layer):
+    def __init__(self, output_n, dropout_rate=0, parameter_initialization='XavierRelu'):
+        super(ReLuLayer, self).__init__(output_n, dropout_rate, parameter_initialization)
 
     def activation(self, z):
         return np.maximum(0, z)
@@ -147,12 +143,9 @@ class ReLuLayer(Layer):
         return z
 
 
-class SigmoidLayer(Layer):
-    def __init__(self, input_n, output_n, l, dropout_rate, parameter_initialization):
-        if not parameter_initialization:
-            parameter_initialization = 'XavierRelu'
-        super(SigmoidLayer, self).__init__(input_n, output_n, l, dropout_rate, parameter_initialization)
-
+class SigmoidLayer(_Layer):
+    def __init__(self, output_n, dropout_rate=0, parameter_initialization='XavierRelu'):
+        super(SigmoidLayer, self).__init__(output_n, dropout_rate, parameter_initialization)
         self.cost_function = binomial_cross_entropy
 
     def activation(self, z):
@@ -166,14 +159,9 @@ class SigmoidLayer(Layer):
         self.dz = np.multiply(da, self.activation_derivative(self.z))
 
 
-class SoftMaxLayer(Layer):
-    def __init__(self, input_n, output_n, l, dropout_rate, parameter_initialization):
-
-        if not parameter_initialization:
-            parameter_initialization = 'XavierRelu'
-
-        super(SoftMaxLayer, self).__init__(input_n, output_n, l, dropout_rate, parameter_initialization)
-
+class SoftMaxLayer(_Layer):
+    def __init__(self, output_n, dropout_rate=0, parameter_initialization='XavierRelu'):
+        super(SoftMaxLayer, self).__init__(output_n, dropout_rate, parameter_initialization)
         self.cost_function = categorical_cross_entropy
 
     def activation(self, z):

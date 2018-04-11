@@ -25,26 +25,26 @@ class Network:
 
     parameters_loaded = False
 
-    def add_layer(self, output_n, activation_function, dropout_rate=0, parameter_initialization=None):
+    def add_layer(self, layer):
         """ Add layer to neural network """
-        layer_dict = {'RELU': layers.ReLuLayer,
-                      'TANH': layers.TanhLayer,
-                      'SIGMOID': layers.SigmoidLayer,
-                      'SOFTMAX': layers.SoftMaxLayer}
+        # layer_dict = {'RELU': layers.ReLuLayer,
+        #               'TANH': layers.TanhLayer,
+        #               'SIGMOID': layers.SigmoidLayer,
+        #               'SOFTMAX': layers.SoftMaxLayer}
 
         # Input into layer = output of previous layer unless it's the first layer
         if len(self.layer_list) > 0:
-            input_n = self.layer_list[-1].output_n
+            layer.input_n = self.layer_list[-1].output_n
         else:
-            input_n = None
+            layer.input_n = None
 
-        # Create new layer object
-        new_layer = layer_dict[activation_function.upper()](input_n, output_n, self.layer_count, dropout_rate, parameter_initialization)
+        layer.id = self.layer_count
+
         # Add to list of layers
-        self.layer_list.append(new_layer)
+        self.layer_list.append(layer)
 
         self.layer_count += 1
-        self.output_n = output_n
+        self.output_n = layer.output_n
 
     def train(self, x, y, learning_rate, iterations, mini_batch_size=None, optimizer='adam'):
         """ Start training. Note: X, Y = (example_dims, # of examples) """
