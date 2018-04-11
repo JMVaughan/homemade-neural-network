@@ -27,11 +27,6 @@ class Network:
 
     def add_layer(self, layer):
         """ Add layer to neural network """
-        # layer_dict = {'RELU': layers.ReLuLayer,
-        #               'TANH': layers.TanhLayer,
-        #               'SIGMOID': layers.SigmoidLayer,
-        #               'SOFTMAX': layers.SoftMaxLayer}
-
         # Input into layer = output of previous layer unless it's the first layer
         if len(self.layer_list) > 0:
             layer.input_n = self.layer_list[-1].output_n
