@@ -79,11 +79,11 @@ class Layer:
         # Calculate linear part
         self.z = self.linear_forward(input_a)
 
-        # Calculate dropout matrix
-        self.d = self.create_dropout_matrix()
-
         # Activate linear part
         self.a = self.activation(self.z)
+
+        # Calculate dropout matrix
+        self.d = self.create_dropout_matrix()
 
         # Apply dropout
         self.a = np.multiply(self.a, self.d)
