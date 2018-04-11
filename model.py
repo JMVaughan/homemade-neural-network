@@ -140,7 +140,7 @@ class Network:
         # 2. Calculate cost
         cost = self.compute_cost(a_l, y)
         # 3. Backward propagation
-        self.backwards_propagation(a_l, x, y)
+        self.backwards_propagate(a_l, x, y)
         # 4. Gradient descent (Update parameters)
         self.update_parameters(learning_rate)
 
@@ -161,7 +161,7 @@ class Network:
 
         return a_current
 
-    def backwards_propagation(self, a_l, x, y):
+    def backwards_propagate(self, a_l, x, y):
         """ Perform backwards propagation for categorical cross-entropy"""
         # Calculate derivative of cost, dZ, w.r.t Z
         self.layer_list[-1].set_dz(a_l, y)
@@ -176,10 +176,10 @@ class Network:
                 prev_layer_a = self.layer_list[i - 1].a
 
             # Calculate derivative of cost, dW, w.r.t W
-            layer.dw = (1 / self.mini_batch_size) * np.dot(layer.dz, prev_layer_a.T)
+            layer.dw = (1/self.mini_batch_size)*np.dot(layer.dz, prev_layer_a.T)
 
             # Calculate derivative of cost, dB, w.r.t. B
-            layer.db = (1 / self.mini_batch_size) * np.sum(layer.dz, axis=1, keepdims=True)
+            layer.db = (1/self.mini_batch_size)*np.sum(layer.dz, axis=1, keepdims=True)
 
             if i > 0:
                 prev_layer = self.layer_list[i - 1]
@@ -307,7 +307,7 @@ class Network:
                 count += 1
 
         # STEP 2: Calculate grads and gather into vector
-        self.backwards_propagation(self.forward_propagate(x), x, y)
+        self.backwards_propagate(self.forward_propagate(x), x, y)
         # Gather all grads
         grads = np.array([])
         for layer in self.layer_list:
