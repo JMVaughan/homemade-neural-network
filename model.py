@@ -4,7 +4,6 @@ import sys
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
-from neural_network import layers
 
 
 class Network:
@@ -146,9 +145,9 @@ class Network:
         """ Forward propagate through all layers """
         #  Forward Propagation
         a_previous = x
-        for l in range(self.layer_count):
+        for layer in range(self.layer_count):
             # Get layer
-            current_layer = self.layer_list[l]
+            current_layer = self.layer_list[layer]
             # Pass previous activation through current layer
             a_current = current_layer.linear_activation_forward(a_previous)
             # Copy current activation for next layer
@@ -170,11 +169,17 @@ class Network:
             else:
                 prev_layer_a = self.layer_list[i - 1].a
 
+            # Batch Norm
+            if layer.batch_norm:
+                self.batch_norm(layer)
+            else:
+                layer.dz = (1/self.mini_batch_size)*layer.dz_tilde
+
             # Calculate derivative of cost, dW, w.r.t W
-            layer.dw = (1/self.mini_batch_size)*np.dot(layer.dz, prev_layer_a.T)
+            layer.dw = np.dot(layer.dz, prev_layer_a.T)
 
             # Calculate derivative of cost, dB, w.r.t. B
-            layer.db = (1/self.mini_batch_size)*np.sum(layer.dz, axis=1, keepdims=True)
+            layer.db = np.sum(layer.dz, axis=1, keepdims=True)
 
             if i > 0:
                 prev_layer = self.layer_list[i - 1]
@@ -182,11 +187,18 @@ class Network:
                 prev_layer_da = np.dot(layer.w.T, layer.dz)
                 prev_layer_da = np.multiply(prev_layer_da, prev_layer.d)
                 prev_layer_da = prev_layer_da / prev_layer.keep_prob
-                prev_layer.dz = np.multiply(prev_layer_da, prev_layer.activation_derivative(prev_layer.z))
+                prev_layer.dz_tilde = np.multiply(prev_layer_da, prev_layer.activation_derivative(prev_layer.z_tilde))
 
             assert layer.dz.shape == layer.z.shape
             assert layer.dw.shape == layer.w.shape
             assert layer.db.shape == layer.b.shape
+
+    def batch_norm(self, layer):
+        layer.dgamma = np.sum(layer.dz_tilde*layer.z_norm, axis=1, keepdims=True)
+        layer.dbeta = np.sum(layer.dz_tilde, axis=1, keepdims=True)
+        f_1 = (layer.gamma/self.mini_batch_size)/np.sqrt(layer.sig_squared + layer.epsilon)
+        f_2 = (-layer.dgamma*layer.z_norm + self.mini_batch_size*layer.dz_tilde - layer.dbeta)
+        layer.dz = f_1*f_2
 
     def update_parameters(self, learning_rate):
         """ Update parameters in each of the layers"""
@@ -261,20 +273,35 @@ class Network:
 
     def check_grads(self, x, y):
         """ This function can be called to ensure that implementation of back propagation is correct"""
-        epsilon = 0.0000001
+        epsilon = 10 ** (-7)
         x_n = x.shape[0]
         self.mini_batch_size = x.shape[1]
-        self.initialise_parameters(x_n)
-        parameter_total = 0
-        for layer in self.layer_list:
-            parameter_total += layer.input_n * layer.output_n + layer.output_n
+        self.initialize_layers(x_n, optimizer='GradientDescent')
 
-        # STEP 1: Calculate grad_approx
-        # Create storage for grad_approx
-        grad_approx = np.zeros(shape=(parameter_total, 1))
-        # Update grad_approx
+        # STEP 1: Calculate numerical_grads
+        print('Calculating numerical gradients...')
+        numerical_grads = self.get_numerical_grads(epsilon, x, y)
+
+        # STEP 2: Calculate back_prop_grads and gather into vector
+        print('Calculating back prop back_prop_grads...')
+        self.backwards_propagate(self.forward_propagate(x), x, y)
+        back_prop_grads = self.get_backprop_grads()
+
+        # STEP 3: Calculate difference (using norms)
+        print('Calculating difference...')
+        numerator = np.linalg.norm(numerical_grads - back_prop_grads)
+        denominator = np.linalg.norm(numerical_grads) + np.linalg.norm(back_prop_grads)
+        difference = numerator/denominator
+        print("Difference: {}\nEpsilon: {}".format(difference, epsilon))
+
+    def get_numerical_grads(self, epsilon, x, y):
+        parameter_total = self.get_parameter_total()
+
+        # Create storage for numerical_grads
+        numerical_grads = np.zeros(shape=(parameter_total, 1))
+        # Update numerical_grads
         count = 0
-        for layer in self.layer_list:
+        for l, layer in enumerate(self.layer_list):
             # W
             for i in np.arange(layer.w.shape[0]):
                 for j in np.arange(layer.w.shape[1]):
@@ -283,12 +310,12 @@ class Network:
                     j_plus = self.compute_cost(self.forward_propagate(x), y)
 
                     # J_Theta_minus
-                    layer.w[i, j] -= 2*epsilon
+                    layer.w[i, j] -= 2 * epsilon
                     j_minus = self.compute_cost(self.forward_propagate(x), y)
 
                     # Put un-perturb weights
                     layer.w[i, j] += epsilon
-                    grad_approx[count] = (j_plus - j_minus)/(2 * epsilon)
+                    numerical_grads[count] = (j_plus - j_minus) / (2 * epsilon)
                     count += 1
             # B
             for i in np.arange(layer.b.shape[0]):
@@ -298,24 +325,55 @@ class Network:
                 j_minus = self.compute_cost(self.forward_propagate(x), y)
                 # Put un-perturb weights
                 layer.b[i, 0] += epsilon
-                grad_approx[count] = (j_plus - j_minus) / (2 * epsilon)
+                numerical_grads[count] = (j_plus - j_minus) / (2 * epsilon)
                 count += 1
 
-        # STEP 2: Calculate grads and gather into vector
-        self.backwards_propagate(self.forward_propagate(x), x, y)
-        # Gather all grads
-        grads = np.array([])
+            if layer.batch_norm:
+                # Gamma
+                for i in np.arange(layer.gamma.shape[0]):
+                    layer.gamma[i, 0] += epsilon
+                    j_plus = self.compute_cost(self.forward_propagate(x), y)
+                    layer.gamma[i, 0] -= 2 * epsilon
+                    j_minus = self.compute_cost(self.forward_propagate(x), y)
+                    # Put un-perturb weights
+                    layer.gamma[i, 0] += epsilon
+                    numerical_grads[count] = (j_plus - j_minus) / (2 * epsilon)
+                    count += 1
+                # Beta
+                for i in np.arange(layer.beta.shape[0]):
+                    layer.beta[i, 0] += epsilon
+                    j_plus = self.compute_cost(self.forward_propagate(x), y)
+                    layer.beta[i, 0] -= 2 * epsilon
+                    j_minus = self.compute_cost(self.forward_propagate(x), y)
+                    # Put un-perturb weights
+                    layer.beta[i, 0] += epsilon
+                    numerical_grads[count] = (j_plus - j_minus) / (2 * epsilon)
+                    count += 1
+
+        return numerical_grads
+
+    def get_parameter_total(self):
+        parameter_total = 0
+
         for layer in self.layer_list:
-            grads = np.concatenate((grads, layer.dw.flatten()), axis=0)
-            grads = np.concatenate((grads, layer.db.flatten()), axis=0)
-        grads = np.reshape(grads, newshape=(grads.shape[0], 1))
+            parameter_total += layer.input_n * layer.output_n + layer.output_n
+            if layer.batch_norm:
+                parameter_total += 2*layer.output_n
 
-        # STEP 3: Calculate difference (using norms)
-        numerator = np.linalg.norm(grad_approx - grads)
-        denominator = np.linalg.norm(grad_approx) + np.linalg.norm(grads)
-        difference = numerator/denominator
+        return parameter_total
 
-        print("Difference: {}\nEpsilon: {}".format(difference, epsilon))
+    def get_backprop_grads(self):
+        # Gather all back_prop_grads
+        back_prop_grads = np.array([])
+        for layer in self.layer_list:
+            back_prop_grads = np.concatenate((back_prop_grads, layer.dw.flatten()), axis=0)
+            back_prop_grads = np.concatenate((back_prop_grads, layer.db.flatten()), axis=0)
+            if layer.batch_norm:
+                back_prop_grads = np.concatenate((back_prop_grads, layer.dgamma.flatten()), axis=0)
+                back_prop_grads = np.concatenate((back_prop_grads, layer.dbeta.flatten()), axis=0)
+        back_prop_grads = np.reshape(back_prop_grads, newshape=(back_prop_grads.shape[0], 1))
+
+        return back_prop_grads
 
     def log_training_start(self, mini_batch_size, learning_rate):
         # Log training start
