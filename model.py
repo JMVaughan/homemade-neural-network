@@ -82,22 +82,22 @@ class Network:
         # Run training
         for i in range(1, iterations + 1):
             self.shuffle_data(x, y)
-            avg_cost = 0
+            running_cost = 0
             count = 0
             # Get mini-batch
             for x_batch, y_batch in self.batch_generator(x, y, mini_batch_size):
                 # Perform training step
-                avg_cost += self.step(x_batch, y_batch, learning_rate)
+                running_cost += self.step(x_batch, y_batch, learning_rate)
                 count += 1
 
             # Average the cost over every batch in epoch
-            cost = avg_cost/count
+            average_cost = running_cost/count
             # Gather costs
-            self.cost_list.append(cost)
+            self.cost_list.append(average_cost)
             self.epoch_count += 1
 
             # Print cost and accuracy
-            self.print_cost(cost, i, iterations, calculate_accuracy=False)
+            self.print_cost(average_cost, i, iterations, calculate_accuracy=False)
 
         # Plot costs
         self.plot_cost()
@@ -124,81 +124,125 @@ class Network:
         """ Generate mini-batches """
         example_n = x.shape[1]
         for i in range(0, example_n, mini_batch_size):
-            yield x[:, i:i + mini_batch_size], y[:, i:i + mini_batch_size]
+            # Handle case when mini-batch is smaller than requested size
+            if example_n - i < mini_batch_size:
+                random_idx = np.random.randint(0, i, i + mini_batch_size - example_n)
+                yield np.concatenate((x[:, i:i + mini_batch_size], x[:, random_idx]), axis=1), \
+                      np.concatenate((y[:, i:i + mini_batch_size], y[:, random_idx]), axis=1)
+            else:
+                yield x[:, i:i + mini_batch_size], y[:, i:i + mini_batch_size]
 
     def step(self, x, y, learning_rate):
         """ Perform a single step """
         self.step_count += 1
         # 1. Forward propagation
-        a_l = self.forward_propagate(x)
+        a_l = self.propagate_forwards(x)
         # 2. Calculate cost
         cost = self.compute_cost(a_l, y)
         # 3. Backward propagation
-        self.backwards_propagate(a_l, x, y)
+        self.propagate_backwards(a_l, x, y)
         # 4. Gradient descent (Update parameters)
         self.update_parameters(learning_rate)
 
         # Store cost for plotting
         return cost
 
-    def forward_propagate(self, x):
+    def propagate_forwards(self, x, train=True):
         """ Forward propagate through all layers """
         #  Forward Propagation
         a_previous = x
-        for layer in range(self.layer_count):
+        for i in range(self.layer_count):
             # Get layer
-            current_layer = self.layer_list[layer]
+            current_layer = self.layer_list[i]
             # Pass previous activation through current layer
-            a_current = current_layer.linear_activation_forward(a_previous)
+            a_current = current_layer.linear_activation_forward(a_previous, train)
             # Copy current activation for next layer
             a_previous = np.array(a_current, copy=True)
 
         return a_current
 
-    def backwards_propagate(self, a_l, x, y):
+    def propagate_backwards(self, a_l, x, y):
         """ Perform backwards propagation for categorical cross-entropy"""
         # Calculate derivative of cost, dZ, w.r.t Z
         self.layer_list[-1].set_dz(a_l, y)
         # Iterate backwards through layers
         for i in reversed(range(self.layer_count)):
-            # Get layer
             layer = self.layer_list[i]
-            # If we're at first layer, input = X, else input = A (output) of previous layer
-            if i == 0:
-                prev_layer_a = x
-            else:
-                prev_layer_a = self.layer_list[i - 1].a
+            previous_layer = self.layer_list[i - 1]
 
-            # Batch Norm
-            if layer.batch_norm:
-                self.batch_norm(layer)
-            else:
-                layer.dz = (1/self.mini_batch_size)*layer.dz_tilde
-
-            # Calculate derivative of cost, dW, w.r.t W
-            layer.dw = np.dot(layer.dz, prev_layer_a.T)
-
-            # Calculate derivative of cost, dB, w.r.t. B
-            layer.db = np.sum(layer.dz, axis=1, keepdims=True)
+            prev_layer_a = self.get_previous_layer_a(previous_layer, x, i)
+            layer.dz = self.calculate_dz(layer)
+            layer.dw = self.calculate_dw(layer, prev_layer_a)
+            layer.db = self.calculate_db(layer)
 
             if i > 0:
-                prev_layer = self.layer_list[i - 1]
-                # Calculate derivative of cost, dZ, w.r.t. output Z of previous layer (l - 1)
-                prev_layer_da = np.dot(layer.w.T, layer.dz)
-                prev_layer_da = np.multiply(prev_layer_da, prev_layer.d)
-                prev_layer_da = prev_layer_da / prev_layer.keep_prob
-                prev_layer.dz_tilde = np.multiply(prev_layer_da, prev_layer.activation_derivative(prev_layer.z_tilde))
+                previous_layer.dz_tilde = self.calculate_previous_layer_dz_tilde(layer, previous_layer)
 
             assert layer.dz.shape == layer.z.shape
             assert layer.dw.shape == layer.w.shape
             assert layer.db.shape == layer.b.shape
 
-    def batch_norm(self, layer):
-        layer.dgamma = np.sum(layer.dz_tilde*layer.z_norm, axis=1, keepdims=True)
-        layer.dbeta = np.sum(layer.dz_tilde, axis=1, keepdims=True)
-        f_1 = (layer.gamma/self.mini_batch_size)/np.sqrt(layer.sig_squared + layer.epsilon)
-        f_2 = (-layer.dgamma*layer.z_norm + self.mini_batch_size*layer.dz_tilde - layer.dbeta)
-        layer.dz = f_1*f_2
+    def get_previous_layer_a(self, previous_layer, x,  i):
+        # If we're at first layer, input = X, else input = A (output) of previous layer
+        if i == 0:
+            prev_layer_a = x
+        else:
+            prev_layer_a = previous_layer.a
+        return prev_layer_a
+
+    def calculate_dz(self, layer):
+        # Batch Norm
+        if layer.batch_norm:
+            dz = self.batch_norm_backwards(layer)
+        else:
+            dz = (1 / self.mini_batch_size)*layer.dz_tilde
+        return dz
+
+    def batch_norm_backwards(self, layer):
+        """ Backwards propagation through batch normalization """
+        layer.dgamma = self.calculate_dgamma(layer)
+        layer.dbeta = self.calculate_dbeta(layer)
+        dz = self.calculate_batch_norm_dz(layer)
+        return dz
+
+    def calculate_batch_norm_dz(self, layer):
+        f_1 = (layer.gamma/self.mini_batch_size)*(1/np.sqrt(layer.var + layer.epsilon))
+        f_2 = (self.mini_batch_size*layer.dz_tilde - layer.dgamma*layer.z_norm - layer.dbeta)
+        dz = f_1 * f_2
+        return dz
+
+    @staticmethod
+    def calculate_dbeta(layer):
+        dbeta = np.sum(layer.dz_tilde, axis=1, keepdims=True)
+        return dbeta
+
+    @staticmethod
+    def calculate_dgamma(layer):
+        dgamma = np.sum(layer.dz_tilde*layer.z_norm, axis=1, keepdims=True)
+        return dgamma
+
+    @staticmethod
+    def calculate_dw(layer, prev_layer_a):
+        dw = np.dot(layer.dz, prev_layer_a.T)
+        return dw
+
+    @staticmethod
+    def calculate_db(layer):
+        db = np.sum(layer.dz, axis=1, keepdims=True)
+        return db
+
+    def calculate_previous_layer_dz_tilde(self, layer, previous_layer):
+        previous_layer_da = self.drop_out_backwards(layer, previous_layer)
+        previous_layer_dz_tilde = previous_layer_da * previous_layer.activation_derivative(previous_layer.z_tilde)
+        return previous_layer_dz_tilde
+
+    @staticmethod
+    def drop_out_backwards(current_layer, previous_layer):
+        # Calculate derivative of cost, dZ, w.r.t. output Z of previous layer (l - 1)
+        previous_layer_da = np.dot(current_layer.w.T, current_layer.dz)
+        previous_layer_da = (previous_layer_da*previous_layer.d)/previous_layer.keep_prob
+
+        return previous_layer_da
 
     def update_parameters(self, learning_rate):
         """ Update parameters in each of the layers"""
@@ -207,7 +251,7 @@ class Network:
 
     def predict(self, x):
         """ Make prediction """
-        return self.forward_propagate(x)
+        return self.propagate_forwards(x, False)
 
     def get_accuracy(self, x, y):
         """ Calculate accuracy on passed-in data set """
@@ -244,6 +288,17 @@ class Network:
             key_b = "{}_B".format(str(i))
             data[key_w] = l.w
             data[key_b] = l.b
+
+            if l.batch_norm:
+                key_gamma = "{}_GAMMA".format(str(i))
+                key_beta = "{}_BETA".format(str(i))
+                data[key_gamma] = l.gamma
+                data[key_beta] = l.beta
+
+                key_mu = "{}_MU".format(str(i))
+                key_var = "{}_VAR".format(str(i))
+                data[key_mu] = l.weighted_avg_dict['mu']
+                data[key_var] = l.weighted_avg_dict['var']
 
         np.save(file, data)
 
@@ -284,8 +339,8 @@ class Network:
 
         # STEP 2: Calculate back_prop_grads and gather into vector
         print('Calculating back prop back_prop_grads...')
-        self.backwards_propagate(self.forward_propagate(x), x, y)
-        back_prop_grads = self.get_backprop_grads()
+        self.propagate_backwards(self.propagate_forwards(x), x, y)
+        back_prop_grads = self.get_back_prop_grads()
 
         # STEP 3: Calculate difference (using norms)
         print('Calculating difference...')
@@ -301,68 +356,51 @@ class Network:
         numerical_grads = np.zeros(shape=(parameter_total, 1))
         # Update numerical_grads
         count = 0
+
+        def calc_numerical_grad(parameter, i, j):
+            parameter[i, j] += epsilon
+            j_plus = self.compute_cost(self.propagate_forwards(x), y)
+            parameter[i, j] -= 2 * epsilon
+            j_minus = self.compute_cost(self.propagate_forwards(x), y)
+            # Put un-perturb weights
+            parameter[i, j] += epsilon
+            return (j_plus - j_minus) / (2 * epsilon)
+
         for l, layer in enumerate(self.layer_list):
             # W
             for i in np.arange(layer.w.shape[0]):
                 for j in np.arange(layer.w.shape[1]):
-                    # J_Theta_plus
-                    layer.w[i, j] += epsilon
-                    j_plus = self.compute_cost(self.forward_propagate(x), y)
-
-                    # J_Theta_minus
-                    layer.w[i, j] -= 2 * epsilon
-                    j_minus = self.compute_cost(self.forward_propagate(x), y)
-
-                    # Put un-perturb weights
-                    layer.w[i, j] += epsilon
-                    numerical_grads[count] = (j_plus - j_minus) / (2 * epsilon)
+                    numerical_grads[count] = calc_numerical_grad(layer.w, i, j)
                     count += 1
             # B
             for i in np.arange(layer.b.shape[0]):
-                layer.b[i, 0] += epsilon
-                j_plus = self.compute_cost(self.forward_propagate(x), y)
-                layer.b[i, 0] -= 2 * epsilon
-                j_minus = self.compute_cost(self.forward_propagate(x), y)
-                # Put un-perturb weights
-                layer.b[i, 0] += epsilon
-                numerical_grads[count] = (j_plus - j_minus) / (2 * epsilon)
+                numerical_grads[count] = calc_numerical_grad(layer.b, i, 0)
                 count += 1
 
             if layer.batch_norm:
                 # Gamma
                 for i in np.arange(layer.gamma.shape[0]):
-                    layer.gamma[i, 0] += epsilon
-                    j_plus = self.compute_cost(self.forward_propagate(x), y)
-                    layer.gamma[i, 0] -= 2 * epsilon
-                    j_minus = self.compute_cost(self.forward_propagate(x), y)
-                    # Put un-perturb weights
-                    layer.gamma[i, 0] += epsilon
-                    numerical_grads[count] = (j_plus - j_minus) / (2 * epsilon)
+                    numerical_grads[count] = calc_numerical_grad(layer.gamma, i, 0)
                     count += 1
+
                 # Beta
                 for i in np.arange(layer.beta.shape[0]):
-                    layer.beta[i, 0] += epsilon
-                    j_plus = self.compute_cost(self.forward_propagate(x), y)
-                    layer.beta[i, 0] -= 2 * epsilon
-                    j_minus = self.compute_cost(self.forward_propagate(x), y)
-                    # Put un-perturb weights
-                    layer.beta[i, 0] += epsilon
-                    numerical_grads[count] = (j_plus - j_minus) / (2 * epsilon)
+                    numerical_grads[count] = calc_numerical_grad(layer.beta, i, 0)
                     count += 1
 
         return numerical_grads
 
     def get_parameter_total(self):
         parameter_total = 0
-
         for layer in self.layer_list:
-            parameter_total += layer.input_n * layer.output_n + layer.output_n
+            # W and B
+            parameter_total += layer.input_n*layer.output_n + layer.output_n
             if layer.batch_norm:
+                # Gamma and Beta
                 parameter_total += 2*layer.output_n
-
         return parameter_total
 
-    def get_backprop_grads(self):
+    def get_back_prop_grads(self):
         # Gather all back_prop_grads
         back_prop_grads = np.array([])
         for layer in self.layer_list:
@@ -385,7 +423,7 @@ class Network:
                 param_initialization = 'Loaded'
             else:
                 param_initialization = layer.parameter_initialization
-            logging.info(template.format(i, type(layer).__name__, layer.output_n, layer.dropout_rate, type(layer.optimizer).__name__, param_initialization))
+            logging.info(template.format(i, type(layer).__name__, layer.output_n, layer.dropout_rate, layer.optimizer_string, param_initialization))
         logging.info('\tLearning Rate: {}'.format(learning_rate).rjust(6))
         logging.info('\tMini-Batch Size: {}'.format(mini_batch_size).rjust(6))
         logging.info('\tNo. of Examples: {}'.format(self.example_n).rjust(6))

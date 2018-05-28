@@ -2,104 +2,83 @@ import numpy as np
 
 
 class Optimizer:
-    def __init__(self, w_shape, b_shape):
+    def __init__(self, param_shape):
         raise NotImplementedError("No '__init__' method defined")
 
-    def update_parameters(self, w, b, dw, db, learning_rate):
+    def update_parameters(self, param, dparam, learning_rate):
         raise NotImplementedError("No 'update_parameters' method defined")
 
 
 class GradientDescent(Optimizer):
-    def __init__(self, w_shape, b_shape):
+    def __init__(self, param_shape):
         pass
 
-    def update_parameters(self, w, b, dw, db, learning_rate):
-        w -= learning_rate * dw
-        b -= learning_rate * db
-        return w, b
+    def update_parameters(self, param, dparam, learning_rate):
+        param -= learning_rate * dparam
+        return param
 
 
 class Momentum(Optimizer):
-    vdw = None
-    vdb = None
+    vdparam = None
     beta = None
 
-    def __init__(self, w_shape, b_shape, beta=0.9):
+    def __init__(self, param_shape, beta=0.9):
         self.beta = beta
-        self.vdw = np.zeros(w_shape)
-        self.vdb = np.zeros(b_shape)
+        self.vdparam = np.zeros(param_shape)
 
-    def update_parameters(self, w, b, dw, db, learning_rate):
-        self.vdw = self.beta * self.vdw + (1 - self.beta) * dw
-        self.vdb = self.beta * self.vdb + (1 - self.beta) * db
+    def update_parameters(self, param, dparam, learning_rate):
+        self.vdparam = self.beta * self.vdparam + (1 - self.beta) * dparam
 
-        w -= learning_rate * self.vdw
-        b -= learning_rate * self.vdb
+        param -= learning_rate * self.vdparam
 
-        return w, b
+        return param
 
 
 class RMSProp(Optimizer):
-    sdw = None
-    sdb = None
+    sdparam = None
     beta = None
     epsilon = 1 ** (-8)
 
-    def __init__(self, w_shape, b_shape, beta=0.9):
+    def __init__(self, param_shape, beta=0.9):
         self.beta = beta
-        self.sdw = np.zeros(w_shape)
-        self.sdb = np.zeros(b_shape)
+        self.sdparam = np.zeros(param_shape)
 
-    def update_parameters(self, w, b, dw, db, learning_rate):
+    def update_parameters(self, param, dparam, learning_rate):
 
-        self.sdw = self.beta * self.sdw + (1 - self.beta) * np.square(dw)
-        self.sdb = self.beta * self.sdb + (1 - self.beta) * np.square(db)
+        self.sdparam = self.beta * self.sdparam + (1 - self.beta) * np.square(dparam)
 
-        w -= learning_rate * dw / (np.sqrt(self.sdw) + self.epsilon)
-        b -= learning_rate * db / (np.sqrt(self.sdb) + self.epsilon)
+        param -= learning_rate * dparam / (np.sqrt(self.sdparam) + self.epsilon)
 
-        return w, b
+        return param
 
 
 class Adam(Optimizer):
-    sdw = None
-    sdb = None
-
-    vdw = None
-    vdb = None
+    sdparam = None
+    vdparam = None
 
     beta1 = None
     beta2 = None
 
     epsilon = 1 ** (-8)
 
-    def __init__(self, w_shape, b_shape, beta1=0.9, beta2=0.999):
+    def __init__(self, param_shape, beta1=0.9, beta2=0.999):
         self.beta1 = beta1
         self.beta2 = beta2
 
-        self.sdw = np.zeros(w_shape)
-        self.sdb = np.zeros(b_shape)
+        self.sdparam = np.zeros(param_shape)
 
-        self.vdw = np.zeros(w_shape)
-        self.vdb = np.zeros(b_shape)
+        self.vdparam = np.zeros(param_shape)
 
         self.t = 1
 
-    def update_parameters(self, w, b, dw, db, learning_rate):
+    def update_parameters(self, param, dparam, learning_rate):
 
-        self.vdw = self.beta1 * self.vdw + (1 - self.beta1) * dw
-        self.vdb = self.beta1 * self.vdb + (1 - self.beta1) * db
+        self.vdparam = self.beta1 * self.vdparam + (1 - self.beta1) * dparam
+        self.sdparam = self.beta2 * self.sdparam + (1 - self.beta2) * np.square(dparam)
 
-        self.sdw = self.beta2 * self.sdw + (1 - self.beta2) * np.square(dw)
-        self.sdb = self.beta2 * self.sdb + (1 - self.beta2) * np.square(db)
+        vdparam_corrected = self.vdparam / (1 - self.beta1 ** self.t)
+        sdparam_corrected = self.sdparam / (1 - self.beta2 ** self.t)
 
-        vdw_corrected = self.vdw / (1 - self.beta1 ** self.t)
-        vdb_corrected = self.vdb / (1 - self.beta1 ** self.t)
+        param -= learning_rate * vdparam_corrected / (np.sqrt(sdparam_corrected) + self.epsilon)
 
-        sdw_corrected = self.sdw / (1 - self.beta2 ** self.t)
-        sdb_corrected = self.sdb / (1 - self.beta2 ** self.t)
-
-        w -= learning_rate * vdw_corrected / (np.sqrt(sdw_corrected) + self.epsilon)
-        b -= learning_rate * vdb_corrected / (np.sqrt(sdb_corrected) + self.epsilon)
-
-        return w, b
+        return param
