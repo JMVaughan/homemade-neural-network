@@ -1,14 +1,18 @@
 import numpy as np
-
 from neural_network.optimizers import Momentum, GradientDescent, RMSProp, Adam
 from neural_network.parameter_initialization import small_random, xavier_relu, xavier_tanh
-from neural_network.cost_functions import categorical_cross_entropy, binomial_cross_entropy
+from neural_network.activations import ReLuLayer, TanhLayer, SoftMaxLayer, SigmoidLayer
 
 
-class _Layer:
-    def __init__(self, output_n, dropout_rate, parameter_initialization, batch_norm=False):
+class FullyConnected:
+    def __init__(self, output_n, activation_type, dropout_rate=0, parameter_initialization='XavierRelu', batch_norm=False):
         self.batch_norm = batch_norm
         self.output_n = output_n
+
+        self.activation_type = activation_type
+        self.activation_function = None
+        # Initialize activation
+        self.initialize_activation()
 
         self.dropout_rate = dropout_rate
         self.keep_prob = 1 - dropout_rate
@@ -20,6 +24,9 @@ class _Layer:
         self.parameters_loaded = False
 
         self.id = None
+        self.last = False
+
+        self.input_a = None
 
         self.w = None
         self.b = None
@@ -61,13 +68,22 @@ class _Layer:
             self.initialize_parameters()
 
         # # Initialize batch-normalization parameters
-        self.initialize_batch_norm_parameters()
+        if self.batch_norm:
+            self.initialize_batch_norm_parameters()
 
         # Initialize optimizer
         self.initialize_optimizer(optimizer)
 
         assert self.w.shape == (self.output_n, self.input_n)
         assert self.b.shape == (self.output_n, 1)
+
+    def initialize_activation(self):
+        activation_dict = {'RELU': ReLuLayer,
+                           'TANH': TanhLayer,
+                           'SIGMOID': SigmoidLayer,
+                           'SOFTMAX': SoftMaxLayer}
+
+        self.activation_function = activation_dict[self.activation_type.upper()]()
 
     def initialize_optimizer(self, optimizer_string):
         self.optimizer_string = optimizer_string
@@ -113,6 +129,8 @@ class _Layer:
 
     def linear_activation_forward(self, input_a, train):
         """ Apply activation function """
+        self.input_a = input_a
+
         # Calculate linear part
         self.z = self.linear_forward(input_a)
 
@@ -123,7 +141,7 @@ class _Layer:
             self.z_tilde = self.z
 
         # Activate linear part
-        self.a = self.activation(self.z_tilde)
+        self.a = self.activation_function.activate(self.z_tilde)
 
         # Apply dropout
         self.a = self.apply_dropout(self.a)
@@ -197,67 +215,74 @@ class _Layer:
         if param_type.upper() == "VAR":
             self.weighted_avg_dict['var'] = array
 
-        #ToDo make sure that mini bath generator handles last batch which is smaller than rest
-        #ToDo refactor!
-    def activation_derivative(self, z):
-        pass
+    def back_prop(self, da_output=None, mini_batch_size=None, a_l=None, y=None):
+        if self.last:
+            # Start back-prop by getting dz_tilde from cost function
+            self.dz_tilde = self.activation_function.set_dz(a_l, y)
+        else:
+            # da_dropout -> da
+            da = self.drop_out_backwards(da_output)
+            # da -> dz_tilde
+            self.dz_tilde = self.calculate_dz_tilde(da)
 
-    def activation(self, z):
-        pass
+        # dz_tilde -> dz
+        self.dz = self.calculate_dz(mini_batch_size)
+        # dw
+        self.dw = self.calculate_dw()
+        # db
+        self.db = self.calculate_db()
+        # d_input (i.e. output of previous layer)
+        prev_da = self.calculate_previous_layer_da()
 
+        return prev_da
 
-class TanhLayer(_Layer):
-    def __init__(self, output_n, dropout_rate=0, parameter_initialization='XavierTanh', batch_norm=True):
-        super(TanhLayer, self).__init__(output_n, dropout_rate, parameter_initialization, batch_norm)
+    def calculate_dz(self, mini_batch_size):
+        # Batch Norm
+        if self.batch_norm:
+            dz = self.batch_norm_backwards(mini_batch_size)
+        else:
+            dz = (1 / mini_batch_size)*self.dz_tilde
+        return dz
 
-    def activation(self, z):
-        return np.tanh(z)
+    def batch_norm_backwards(self, mini_batch_size):
+        """ Backwards propagation through batch normalization """
+        self.dgamma = self.calculate_dgamma()
+        self.dbeta = self.calculate_dbeta()
+        dz = self.calculate_batch_norm_dz(mini_batch_size)
+        return dz
 
-    def activation_derivative(self, z):
-        return 1 - np.square(np.tanh(z))
+    def calculate_batch_norm_dz(self, mini_batch_size):
+        f_1 = (self.gamma/mini_batch_size)*(1/np.sqrt(self.var + self.epsilon))
+        f_2 = (mini_batch_size*self.dz_tilde - self.dgamma*self.z_norm - self.dbeta)
+        dz = f_1 * f_2
+        return dz
 
+    def calculate_dbeta(self):
+        dbeta = np.sum(self.dz_tilde, axis=1, keepdims=True)
+        return dbeta
 
-class ReLuLayer(_Layer):
-    def __init__(self, output_n, dropout_rate=0, parameter_initialization='XavierRelu', batch_norm=True):
-        super(ReLuLayer, self).__init__(output_n, dropout_rate, parameter_initialization, batch_norm)
+    def calculate_dgamma(self):
+        dgamma = np.sum(self.dz_tilde*self.z_norm, axis=1, keepdims=True)
+        return dgamma
 
-    def activation(self, z):
-        return np.maximum(0, z)
+    def calculate_dw(self):
+        dw = np.dot(self.dz, self.input_a.T)
+        return dw
 
-    def activation_derivative(self, z):
-        z[z <= 0] = 0
-        z[z > 0] = 1
-        return z
+    def calculate_db(self):
+        db = np.sum(self.dz, axis=1, keepdims=True)
+        return db
 
+    def calculate_dz_tilde(self, da_before_dropout):
+        dz_tilde = da_before_dropout * self.activation_function.activate_derivative(self.z_tilde)
+        return dz_tilde
 
-class SigmoidLayer(_Layer):
-    def __init__(self, output_n, dropout_rate=0, parameter_initialization='XavierRelu'):
-        super(SigmoidLayer, self).__init__(output_n, dropout_rate, parameter_initialization)
-        self.cost_function = binomial_cross_entropy
+    def drop_out_backwards(self, da):
+        # Calculate derivative of cost, dZ, w.r.t. output Z of previous layer (l - 1)
+        da_before_dropout = (da*self.d)/self.keep_prob
 
-    def activation(self, z):
-        return 1 / (1 + np.exp(-z))
+        return da_before_dropout
 
-    def activation_derivative(self, z):
-        return self.a * (1 - self.a)
-
-    def set_dz(self, a_l, y):
-        da = - np.divide(y, a_l) + np.divide(1 - y, 1 - a_l)
-        self.dz_tilde = np.multiply(da, self.activation_derivative(self.z))
-
-
-class SoftMaxLayer(_Layer):
-    def __init__(self, output_n, dropout_rate=0, parameter_initialization='XavierRelu'):
-        super(SoftMaxLayer, self).__init__(output_n, dropout_rate, parameter_initialization)
-        self.cost_function = categorical_cross_entropy
-
-    def activation(self, z):
-        e_z = np.exp(z - np.max(z))
-        return e_z/np.sum(e_z, axis=0)
-
-    def activation_derivative(self, z):
-        return self.a*(1 - self.a)
-
-    def set_dz(self, a_l, y):
-        # Categorical cross entropy
-        self.dz_tilde = a_l - y
+    def calculate_previous_layer_da(self):
+        previous_layer_da = np.dot(self.w.T, self.dz)
+        return previous_layer_da

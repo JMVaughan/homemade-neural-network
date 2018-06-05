@@ -4,10 +4,10 @@ import sys
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 
 class Network:
-
     layer_list = []  # Collection of layers
     layer_count = 0  # Layer number
     output_n = None  # Nodes in last layer
@@ -76,6 +76,8 @@ class Network:
         for l in self.layer_list:
             l.initialize_layer(optimizer)
 
+        self.layer_list[-1].last = True
+
     def run_training(self, x, y, learning_rate, iterations, mini_batch_size):
         """ Run training with mini-batches """
         self.mini_batch_size = mini_batch_size
@@ -98,6 +100,12 @@ class Network:
 
             # Print cost and accuracy
             self.print_cost(average_cost, i, iterations, calculate_accuracy=False)
+
+            # Save weights every 200 iterations
+            if i % 200 == 0:
+                if not os.path.isdir('tmp'):
+                    os.mkdir('tmp/')
+                self.save_parameters(r'tmp/{}.npy'.format(i))
 
         # Plot costs
         self.plot_cost()
@@ -163,86 +171,16 @@ class Network:
 
     def propagate_backwards(self, a_l, x, y):
         """ Perform backwards propagation for categorical cross-entropy"""
-        # Calculate derivative of cost, dZ, w.r.t Z
-        self.layer_list[-1].set_dz(a_l, y)
-        # Iterate backwards through layers
-        for i in reversed(range(self.layer_count)):
+        # Back-prop through last layer
+        next_layer_da = self.layer_list[-1].back_prop(mini_batch_size=self.mini_batch_size, a_l=a_l, y=y)
+        # Iterate backwards through all layers except last
+        for i in reversed(range(self.layer_count - 1)):
             layer = self.layer_list[i]
-            previous_layer = self.layer_list[i - 1]
-
-            prev_layer_a = self.get_previous_layer_a(previous_layer, x, i)
-            layer.dz = self.calculate_dz(layer)
-            layer.dw = self.calculate_dw(layer, prev_layer_a)
-            layer.db = self.calculate_db(layer)
-
-            if i > 0:
-                previous_layer.dz_tilde = self.calculate_previous_layer_dz_tilde(layer, previous_layer)
+            next_layer_da = layer.back_prop(da_output=next_layer_da, mini_batch_size=self.mini_batch_size)
 
             assert layer.dz.shape == layer.z.shape
             assert layer.dw.shape == layer.w.shape
             assert layer.db.shape == layer.b.shape
-
-    def get_previous_layer_a(self, previous_layer, x,  i):
-        # If we're at first layer, input = X, else input = A (output) of previous layer
-        if i == 0:
-            prev_layer_a = x
-        else:
-            prev_layer_a = previous_layer.a
-        return prev_layer_a
-
-    def calculate_dz(self, layer):
-        # Batch Norm
-        if layer.batch_norm:
-            dz = self.batch_norm_backwards(layer)
-        else:
-            dz = (1 / self.mini_batch_size)*layer.dz_tilde
-        return dz
-
-    def batch_norm_backwards(self, layer):
-        """ Backwards propagation through batch normalization """
-        layer.dgamma = self.calculate_dgamma(layer)
-        layer.dbeta = self.calculate_dbeta(layer)
-        dz = self.calculate_batch_norm_dz(layer)
-        return dz
-
-    def calculate_batch_norm_dz(self, layer):
-        f_1 = (layer.gamma/self.mini_batch_size)*(1/np.sqrt(layer.var + layer.epsilon))
-        f_2 = (self.mini_batch_size*layer.dz_tilde - layer.dgamma*layer.z_norm - layer.dbeta)
-        dz = f_1 * f_2
-        return dz
-
-    @staticmethod
-    def calculate_dbeta(layer):
-        dbeta = np.sum(layer.dz_tilde, axis=1, keepdims=True)
-        return dbeta
-
-    @staticmethod
-    def calculate_dgamma(layer):
-        dgamma = np.sum(layer.dz_tilde*layer.z_norm, axis=1, keepdims=True)
-        return dgamma
-
-    @staticmethod
-    def calculate_dw(layer, prev_layer_a):
-        dw = np.dot(layer.dz, prev_layer_a.T)
-        return dw
-
-    @staticmethod
-    def calculate_db(layer):
-        db = np.sum(layer.dz, axis=1, keepdims=True)
-        return db
-
-    def calculate_previous_layer_dz_tilde(self, layer, previous_layer):
-        previous_layer_da = self.drop_out_backwards(layer, previous_layer)
-        previous_layer_dz_tilde = previous_layer_da * previous_layer.activation_derivative(previous_layer.z_tilde)
-        return previous_layer_dz_tilde
-
-    @staticmethod
-    def drop_out_backwards(current_layer, previous_layer):
-        # Calculate derivative of cost, dZ, w.r.t. output Z of previous layer (l - 1)
-        previous_layer_da = np.dot(current_layer.w.T, current_layer.dz)
-        previous_layer_da = (previous_layer_da*previous_layer.d)/previous_layer.keep_prob
-
-        return previous_layer_da
 
     def update_parameters(self, learning_rate):
         """ Update parameters in each of the layers"""
@@ -261,7 +199,7 @@ class Network:
 
     def compute_cost(self, a_l, y):
         """ Use cost function as defined by last layer """
-        return self.layer_list[-1].cost_function(self.mini_batch_size, a_l, y)
+        return self.layer_list[-1].activation_function.cost_function(self.mini_batch_size, a_l, y)
 
     def print_cost(self, cost, i, iterations, calculate_accuracy=True):
         """ Print current cost, iterations, and percentage complete """
