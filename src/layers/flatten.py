@@ -1,4 +1,4 @@
-from neural_network.layers.layer_base import _LayerBase
+from src.layers.layer_base import _LayerBase
 
 
 class Flatten(_LayerBase):

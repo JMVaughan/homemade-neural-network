@@ -1,10 +1,10 @@
 import numpy as np
-from scipy.signal import convolve2d
-
 from neural_network.layers.layer_base import _LayerBase
 from neural_network.optimizers import GradientDescent, RMSProp, Momentum, Adam
 from neural_network.parameter_initialization import small_random_convolution_filter
-from neural_network.activations import ReLuLayer, TanhLayer
+from scipy.signal import convolve2d
+
+from src.activations import ReLuLayer, TanhLayer
 
 
 class Convolutional(_LayerBase):
