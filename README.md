@@ -7,10 +7,14 @@ Coded in Python, **this project only uses Numpy** for numerical computation (**N
 
 The API includes the following features: 
 - The ability to add as many layers as desired
-- A variety of parameter intializations (Small random and Xavier)
+- A variety of parameter intialisations (Small random and Xavier)
 - A variety of optimization procedures (Gradient Descent, Momentum, RMSProp, Adam)
-- Dropout Regularization
-- Batch Normalization
+- Dropout Regularisation
+- Batch Normalisation
 - Stochastic Gradient Descent, Batch Gradient Descent and Mini-Batch Gradient Descent
 - Various activation functions (Tanh, Relu, Softmax, Sigmoid)
 - The ability to save/ load trained weights
+
+## Performance
+
+To date, this implementation has achieved 97.9% accuracy on the [MNIST Kaggle competition](https://www.kaggle.com/c/digit-recognizer) for recognising hand written digits. 
