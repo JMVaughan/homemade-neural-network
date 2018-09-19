@@ -20,3 +20,5 @@ The API includes the following features:
 ## Performance
 
 To date, this implementation has achieved 97.9% accuracy on the [MNIST Kaggle competition](https://www.kaggle.com/c/digit-recognizer) for recognising hand written digits. 
+
+![alt text](/examples/MNIST/MNIST_predictions.png)
