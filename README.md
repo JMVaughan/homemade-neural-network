@@ -17,6 +17,21 @@ The API includes the following features:
 - Various activation functions (Tanh, Relu, Softmax, Sigmoid)
 - The ability to save/ load trained weights
 
+## Example Usage
+```python
+# Build model
+model = Network()
+model.add_layer(FullyConnected(256, 'relu', dropout_rate=0.5, batch_norm=True))
+model.add_layer(FullyConnected(256, 'relu', dropout_rate=0.5, batch_norm=True))
+model.add_layer(FullyConnected(10, 'softmax'))
+
+model.load_parameters(r'tmp\400.npy') # Load previously trained parameters if required
+# Train model
+model.train(X, Y, learning_rate=0.0075, iterations=2000, mini_batch_size=20, optimizer='Adam')
+# Save Parameters
+model.save_parameters('MNIST_mini_batch.npy')
+```
+
 ## Performance
 
 To date, this implementation has achieved 97.9% accuracy on the [MNIST Kaggle competition](https://www.kaggle.com/c/digit-recognizer) for recognising hand written digits. 
