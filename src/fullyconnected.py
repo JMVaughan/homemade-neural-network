@@ -2,7 +2,7 @@ import numpy as np
 from neural_network.src.optimizers import Momentum, GradientDescent, RMSProp, Adam
 from neural_network.src.parameter_initialization import small_random, xavier_relu, xavier_tanh
 
-from src.activations import ReLuLayer, TanhLayer, SoftMaxLayer, SigmoidLayer
+from neural_network.src.activations import ReLuLayer, TanhLayer, SoftMaxLayer, SigmoidLayer
 
 
 class FullyConnected:
