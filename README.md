@@ -1,4 +1,4 @@
-## Overview
+# Python Neural Network API
 
 This project contains my personal neural network implementation.
 Coded in Python, **this project only uses Numpy** for numerical computation (**No Tensorflow, Keras, sklearn, etc.**). All elements of the neural network, such as the backward propogation algorithm, have been implmented from scratch.
