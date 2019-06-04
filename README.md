@@ -9,12 +9,12 @@ Currently, this API only provides the utility of fully connected layers.
 
 The API includes the following features: 
 - The ability to add as many layers as desired
-- A variety of parameter intialisations (Small random and Xavier)
-- A variety of optimization procedures (Gradient Descent, Momentum, RMSProp, Adam)
-- Dropout Regularisation
-- Batch Normalisation
-- Stochastic Gradient Descent, Batch Gradient Descent and Mini-Batch Gradient Descent
-- Various activation functions (Tanh, Relu, Softmax, Sigmoid)
+- A variety of parameter initializations (*Small random* and *Xavier*)
+- A variety of optimization procedures (*Gradient Descent*, *Momentum*, *RMSProp*, *Adam*)
+- *Dropout* Regularisation
+- *Batch Normalisation*
+- *Stochastic Gradient Descent*, *Batch Gradient Descent* and *Mini-Batch Gradient Descent*
+- Various activation functions (*Tanh*, *Relu*, *Softmax*, *Sigmoid*)
 - The ability to save/ load trained weights
 
 ## Example Usage
