@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from neural_network.src.model import Network
+from src.model import Network
 
-from neural_network.src.fullyconnected import FullyConnected
+from src.fullyconnected import FullyConnected
 
 # Import data
 data = pd.read_csv("MNIST.csv")
