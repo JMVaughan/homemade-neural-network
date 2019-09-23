@@ -1,6 +1,6 @@
 import numpy as np
 
-from neural_network.src.cost_functions import categorical_cross_entropy
+from src.cost_functions import categorical_cross_entropy
 
 
 class TanhLayer:
