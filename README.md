@@ -34,6 +34,6 @@ model.save_parameters('MNIST_mini_batch.npy')
 
 ## Performance
 
-To date, this implementation has achieved 97.9% accuracy on the [MNIST Kaggle competition](https://www.kaggle.com/c/digit-recognizer) for recognising hand written digits. 
+To date, this implementation has achieved 97.9% accuracy on the [MNIST Kaggle competition](https://www.kaggle.com/c/digit-recognizer) for recognising hand written digits. The MNIST hand written digits dataset can be found [here](https://www.kaggle.com/c/digit-recognizer/data). 
 
 ![alt text](/examples/MNIST/MNIST_predictions.png)
